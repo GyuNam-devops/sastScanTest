@@ -62,19 +62,27 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Download and setup CodeQL CLI
+      - name: Download and setup CodeQL
         run: |
+          echo "Downloading CodeQL CLI..."
           wget -q https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
           unzip -q codeql-linux64.zip
           echo "${{ github.workspace }}/codeql" >> $GITHUB_PATH
 
+          echo "Downloading CodeQL query packs..."
+          git clone --depth 1 https://github.com/github/codeql.git codeql-repo
+
+          echo "CodeQL version:"
+          ./codeql/codeql version
+
       - name: Create CodeQL database
         run: |
-          echo "Creating CodeQL database..."
-          codeql database create codeql-db --language=python --source-root=. || {
-            echo "Database creation failed"
-            exit 1
-          }
+          echo "Creating CodeQL database for Python..."
+          ./codeql/codeql database create codeql-db \
+            --language=python \
+            --source-root=. \
+            --verbose
+
           echo "Database created successfully"
           ls -lah codeql-db/
 
@@ -83,18 +91,19 @@ jobs:
           echo "Starting CodeQL analysis..."
           mkdir -p scan-results
 
-          # Run analysis with verbose output
-          codeql database analyze codeql-db \
+          echo "Running analysis with security queries..."
+          ./codeql/codeql database analyze codeql-db \
+            codeql-repo/python/ql/src/codeql-suites/python-security-extended.qls \
             --format=sarif-latest \
             --output=scan-results/codeql-results.sarif \
-            --download \
-            --threads=0 || {
-            echo "Analysis failed with exit code $?"
-            echo "Trying without --download flag..."
-            codeql database analyze codeql-db \
+            --sarif-category=python \
+            --verbose || {
+            echo "Security suite failed, trying with security-and-quality..."
+            ./codeql/codeql database analyze codeql-db \
+              codeql-repo/python/ql/src/codeql-suites/python-security-and-quality.qls \
               --format=sarif-latest \
               --output=scan-results/codeql-results.sarif \
-              --threads=0 || true
+              --verbose || true
           }
 
           # Check all possible locations
