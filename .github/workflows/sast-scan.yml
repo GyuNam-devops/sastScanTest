@@ -16,30 +16,100 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
-        uses: semgrep/semgrep-action@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          config: >-
-            p/security-audit
-            p/owasp-top-ten
-            p/python
-        env:
-          SEMGREP_RULES: auto
+          python-version: '3.11'
 
-      - name: Save Semgrep results
-        if: always()
+      - name: Install Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      - name: Run Semgrep scan
         run: |
           mkdir -p scan-results
-          semgrep --config=auto --json --output=scan-results/semgrep-results.json || true
-          semgrep --config=auto --sarif --output=scan-results/semgrep-results.sarif || true
-          semgrep --config=auto --output=scan-results/semgrep-results.txt || true
+
+          # Run Semgrep with multiple rulesets and save results
+          semgrep scan \
+            --config=p/security-audit \
+            --config=p/owasp-top-ten \
+            --config=p/python \
+            --json --output=scan-results/semgrep-results.json || true
+
+          semgrep scan \
+            --config=p/security-audit \
+            --config=p/owasp-top-ten \
+            --config=p/python \
+            --sarif --output=scan-results/semgrep-results.sarif || true
+
+          semgrep scan \
+            --config=p/security-audit \
+            --config=p/owasp-top-ten \
+            --config=p/python \
+            --text --output=scan-results/semgrep-results.txt || true
+
+      - name: Generate Semgrep summary
+        if: always()
+        run: |
+          if [ -f scan-results/semgrep-results.json ]; then
+            echo "# Semgrep Scan Results" > scan-results/semgrep-summary.txt
+            echo "" >> scan-results/semgrep-summary.txt
+            echo "Scan completed at: $(date)" >> scan-results/semgrep-summary.txt
+            echo "" >> scan-results/semgrep-summary.txt
+
+            python3 << 'PYEOF' >> scan-results/semgrep-summary.txt
+import json
+try:
+    with open('scan-results/semgrep-results.json', 'r') as f:
+        data = json.load(f)
+
+    results = data.get('results', [])
+    errors = data.get('errors', [])
+
+    print(f"Total findings: {len(results)}")
+    print(f"Errors: {len(errors)}")
+    print("")
+
+    # Count by severity
+    severity_counts = {}
+    for result in results:
+        severity = result.get('extra', {}).get('severity', 'UNKNOWN')
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+    print("Findings by severity:")
+    for severity, count in sorted(severity_counts.items()):
+        print(f"  {severity}: {count}")
+    print("")
+
+    # Show top 20 findings
+    print("Top 20 findings:")
+    print("-" * 80)
+    for i, result in enumerate(results[:20], 1):
+        rule_id = result.get('check_id', 'Unknown')
+        severity = result.get('extra', {}).get('severity', 'INFO')
+        message = result.get('extra', {}).get('message', 'No message')
+        path = result.get('path', 'Unknown')
+        line = result.get('start', {}).get('line', '?')
+
+        print(f"\n{i}. [{severity}] {rule_id}")
+        print(f"   File: {path}:{line}")
+        print(f"   {message[:150]}")
+
+    if len(results) > 20:
+        print(f"\n... and {len(results) - 20} more findings")
+
+except Exception as e:
+    print(f"Error parsing results: {e}")
+PYEOF
+          fi
 
       - name: Upload Semgrep results as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-scan-results
-          path: scan-results/semgrep-*
+          path: scan-results/
           retention-days: 30
 
   codeql-scan:
