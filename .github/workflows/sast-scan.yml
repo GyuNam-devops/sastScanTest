@@ -1,0 +1,140 @@
+name: SAST Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  semgrep-scan:
+    name: Semgrep SAST Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/owasp-top-ten
+            p/python
+        env:
+          SEMGREP_RULES: auto
+
+      - name: Save Semgrep results
+        if: always()
+        run: |
+          mkdir -p scan-results
+          semgrep --config=auto --json --output=scan-results/semgrep-results.json || true
+          semgrep --config=auto --sarif --output=scan-results/semgrep-results.sarif || true
+          semgrep --config=auto --output=scan-results/semgrep-results.txt || true
+
+      - name: Upload Semgrep results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-scan-results
+          path: scan-results/semgrep-*
+          retention-days: 30
+
+  codeql-scan:
+    name: CodeQL SAST Scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          output: codeql-results
+          upload: false
+
+      - name: Process CodeQL results
+        if: always()
+        run: |
+          mkdir -p scan-results
+          if [ -d "codeql-results" ]; then
+            cp -r codeql-results/* scan-results/ 2>/dev/null || true
+          fi
+          if [ -d "${{ github.workspace }}/../results" ]; then
+            cp -r ${{ github.workspace }}/../results/* scan-results/ 2>/dev/null || true
+          fi
+          find /home/runner/work/_temp -name "*.sarif" -exec cp {} scan-results/ \; 2>/dev/null || true
+          ls -la scan-results/ || echo "No results found yet"
+
+      - name: Upload CodeQL results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-scan-results
+          path: scan-results/
+          retention-days: 30
+
+  summary:
+    name: Scan Summary
+    runs-on: ubuntu-latest
+    needs: [semgrep-scan, codeql-scan]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-scan-results
+
+      - name: Generate summary report
+        run: |
+          echo "# SAST Scan Results Summary" > summary.md
+          echo "" >> summary.md
+          echo "## Scan Date: $(date)" >> summary.md
+          echo "" >> summary.md
+
+          echo "### Semgrep Results" >> summary.md
+          if [ -f "all-scan-results/semgrep-scan-results/semgrep-results.json" ]; then
+            echo "✅ Semgrep scan completed" >> summary.md
+            echo "- Results saved in semgrep-scan-results artifact" >> summary.md
+          else
+            echo "❌ Semgrep results not found" >> summary.md
+          fi
+          echo "" >> summary.md
+
+          echo "### CodeQL Results" >> summary.md
+          if [ -d "all-scan-results/codeql-scan-results" ]; then
+            echo "✅ CodeQL scan completed" >> summary.md
+            echo "- Results saved in codeql-scan-results artifact" >> summary.md
+          else
+            echo "❌ CodeQL results not found" >> summary.md
+          fi
+          echo "" >> summary.md
+
+          echo "## Download Artifacts" >> summary.md
+          echo "Scan results are available in the GitHub Actions artifacts for 30 days." >> summary.md
+
+          cat summary.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-summary
+          path: summary.md
+          retention-days: 30
