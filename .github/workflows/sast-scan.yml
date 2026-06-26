@@ -214,7 +214,7 @@ jobs:
 
       - name: Generate analysis summary
         run: |
-          cat > analysis-summary.md << 'SUMMARY_EOF'
+          cat > analysis-summary.md << SUMMARY_EOF
           # Security Scan Analysis Summary
 
           **Scan Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
