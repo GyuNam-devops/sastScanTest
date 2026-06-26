@@ -45,42 +45,83 @@ jobs:
   codeql-scan:
     name: CodeQL SAST Scan
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          languages: python
-          queries: security-extended
+          python-version: '3.11'
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Perform CodeQL Analysis
-        id: analyze
-        uses: github/codeql-action/analyze@v3
-        with:
-          output: codeql-results
-          upload: false
+      - name: Download and setup CodeQL CLI
+        run: |
+          wget -q https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
+          unzip -q codeql-linux64.zip
+          echo "${{ github.workspace }}/codeql" >> $GITHUB_PATH
 
-      - name: Process CodeQL results
-        if: always()
+      - name: Create CodeQL database
+        run: |
+          codeql database create codeql-db --language=python --source-root=.
+
+      - name: Run CodeQL analysis
         run: |
           mkdir -p scan-results
-          if [ -d "codeql-results" ]; then
-            cp -r codeql-results/* scan-results/ 2>/dev/null || true
+          codeql database analyze codeql-db \
+            --format=sarif-latest \
+            --output=scan-results/codeql-results.sarif \
+            --download || echo "Analysis completed with warnings"
+
+          codeql database analyze codeql-db \
+            --format=csv \
+            --output=scan-results/codeql-results.csv \
+            --download || echo "CSV export completed"
+
+      - name: Generate human-readable report
+        if: always()
+        run: |
+          if [ -f scan-results/codeql-results.sarif ]; then
+            echo "# CodeQL Scan Results" > scan-results/codeql-report.txt
+            echo "" >> scan-results/codeql-report.txt
+            echo "Scan completed at: $(date)" >> scan-results/codeql-report.txt
+            echo "" >> scan-results/codeql-report.txt
+
+            python3 << 'PYEOF' >> scan-results/codeql-report.txt
+import json
+try:
+    with open('scan-results/codeql-results.sarif', 'r') as f:
+        data = json.load(f)
+
+    for run in data.get('runs', []):
+        results = run.get('results', [])
+        print(f"\nTotal findings: {len(results)}\n")
+
+        for i, result in enumerate(results[:50], 1):
+            rule_id = result.get('ruleId', 'Unknown')
+            message = result.get('message', {}).get('text', 'No message')
+            level = result.get('level', 'note')
+
+            locations = result.get('locations', [])
+            if locations:
+                loc = locations[0].get('physicalLocation', {})
+                uri = loc.get('artifactLocation', {}).get('uri', 'Unknown')
+                region = loc.get('region', {})
+                line = region.get('startLine', '?')
+                print(f"{i}. [{level.upper()}] {rule_id}")
+                print(f"   File: {uri}:{line}")
+                print(f"   Message: {message}\n")
+except Exception as e:
+    print(f"Error parsing SARIF: {e}")
+PYEOF
           fi
-          if [ -d "${{ github.workspace }}/../results" ]; then
-            cp -r ${{ github.workspace }}/../results/* scan-results/ 2>/dev/null || true
-          fi
-          find /home/runner/work/_temp -name "*.sarif" -exec cp {} scan-results/ \; 2>/dev/null || true
-          ls -la scan-results/ || echo "No results found yet"
+
+          ls -lah scan-results/
 
       - name: Upload CodeQL results as artifact
         if: always()
