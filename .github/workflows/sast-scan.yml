@@ -146,6 +146,18 @@ jobs:
             --severity CRITICAL,HIGH,MEDIUM,LOW \
             --scanners vuln,secret,misconfig || true
 
+          echo "Generating filesystem SBOM (CycloneDX format)..."
+          docker run --rm -v ${{ github.workspace }}:/scan \
+            aquasec/trivy:latest fs /scan \
+            --format cyclonedx \
+            --output /scan/scan-results/sbom-fs-cyclonedx.json || true
+
+          echo "Generating filesystem SBOM (SPDX format)..."
+          docker run --rm -v ${{ github.workspace }}:/scan \
+            aquasec/trivy:latest fs /scan \
+            --format spdx-json \
+            --output /scan/scan-results/sbom-fs-spdx.json || true
+
           echo "Trivy filesystem scan completed"
           ls -lah scan-results/
 
@@ -154,7 +166,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-scan-results
-          path: scan-results/trivy-fs-results.json
+          path: scan-results/
           retention-days: 30
           if-no-files-found: warn
 
@@ -188,6 +200,22 @@ jobs:
             --severity CRITICAL,HIGH,MEDIUM,LOW \
             pygoat:${{ github.sha }} || true
 
+          echo "Generating Docker image SBOM (CycloneDX format)..."
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${{ github.workspace }}/scan-results:/output \
+            aquasec/trivy:latest image \
+            --format cyclonedx \
+            --output /output/sbom-image-cyclonedx.json \
+            pygoat:${{ github.sha }} || true
+
+          echo "Generating Docker image SBOM (SPDX format)..."
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${{ github.workspace }}/scan-results:/output \
+            aquasec/trivy:latest image \
+            --format spdx-json \
+            --output /output/sbom-image-spdx.json \
+            pygoat:${{ github.sha }} || true
+
           echo "Trivy image scan completed"
           ls -lah scan-results/
 
@@ -196,7 +224,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-image-scan-results
-          path: scan-results/trivy-image-results.json
+          path: scan-results/
           retention-days: 30
           if-no-files-found: warn
 
@@ -385,13 +413,27 @@ jobs:
           echo "" >> analysis-summary.md
           echo "---" >> analysis-summary.md
           echo "" >> analysis-summary.md
+          echo "## 📦 SBOM (Software Bill of Materials)" >> analysis-summary.md
+          echo "" >> analysis-summary.md
+          echo "SBOM files generated in multiple formats:" >> analysis-summary.md
+          echo "" >> analysis-summary.md
+          echo "**Filesystem SBOM:**" >> analysis-summary.md
+          echo "- CycloneDX: \`sbom-fs-cyclonedx.json\`" >> analysis-summary.md
+          echo "- SPDX: \`sbom-fs-spdx.json\`" >> analysis-summary.md
+          echo "" >> analysis-summary.md
+          echo "**Docker Image SBOM:**" >> analysis-summary.md
+          echo "- CycloneDX: \`sbom-image-cyclonedx.json\`" >> analysis-summary.md
+          echo "- SPDX: \`sbom-image-spdx.json\`" >> analysis-summary.md
+          echo "" >> analysis-summary.md
+          echo "---" >> analysis-summary.md
+          echo "" >> analysis-summary.md
           echo "## 📥 Download Full Results" >> analysis-summary.md
           echo "" >> analysis-summary.md
           echo "Detailed scan results are available as artifacts:" >> analysis-summary.md
           echo "- \`semgrep-scan-results\` - Semgrep JSON results" >> analysis-summary.md
           echo "- \`codeql-scan-results\` - CodeQL SARIF results" >> analysis-summary.md
-          echo "- \`trivy-fs-scan-results\` - Trivy filesystem JSON results" >> analysis-summary.md
-          echo "- \`trivy-image-scan-results\` - Trivy Docker image JSON results (CVE)" >> analysis-summary.md
+          echo "- \`trivy-fs-scan-results\` - Trivy filesystem scan + SBOM (CycloneDX, SPDX)" >> analysis-summary.md
+          echo "- \`trivy-image-scan-results\` - Trivy Docker image scan + SBOM (CycloneDX, SPDX)" >> analysis-summary.md
           echo "" >> analysis-summary.md
           echo "*Artifacts are retained for 30 days*" >> analysis-summary.md
 
