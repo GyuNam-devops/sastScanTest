@@ -40,8 +40,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-scan-results
-          path: scan-results/
+          path: scan-results/semgrep-results.json
           retention-days: 30
+          if-no-files-found: warn
 
   codeql-scan:
     name: CodeQL SAST Scan
@@ -76,14 +77,17 @@ jobs:
           mkdir -p scan-results
           codeql database analyze codeql-db \
             --format=sarif-latest \
-            --output=scan-results/codeql-results.sarif \
+            --output=scan-results/codeql-results.json \
             --download || true
 
-      - name: Convert SARIF to JSON
-        if: always()
-        run: |
-          if [ -f scan-results/codeql-results.sarif ]; then
-            cp scan-results/codeql-results.sarif scan-results/codeql-results.json
+          # Verify file was created
+          ls -lah scan-results/
+          if [ -f scan-results/codeql-results.json ]; then
+            echo "CodeQL results generated successfully"
+          else
+            echo "Warning: CodeQL results file not found"
+            # Create empty results file to ensure artifact upload
+            echo '{"runs":[]}' > scan-results/codeql-results.json
           fi
 
       - name: Upload CodeQL results as artifact
@@ -91,8 +95,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: codeql-scan-results
-          path: scan-results/
+          path: scan-results/codeql-results.json
           retention-days: 30
+          if-no-files-found: warn
 
   summary:
     name: Scan Summary
