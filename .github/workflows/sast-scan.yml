@@ -126,15 +126,15 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  trivy-scan:
-    name: Trivy SCA Scan
+  trivy-fs-scan:
+    name: Trivy Filesystem SCA Scan
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy filesystem scanner
         run: |
           mkdir -p scan-results
 
@@ -142,26 +142,68 @@ jobs:
           docker run --rm -v ${{ github.workspace }}:/scan \
             aquasec/trivy:latest fs /scan \
             --format json \
-            --output /scan/scan-results/trivy-results.json \
+            --output /scan/scan-results/trivy-fs-results.json \
             --severity CRITICAL,HIGH,MEDIUM,LOW \
             --scanners vuln,secret,misconfig || true
 
-          echo "Trivy scan completed"
+          echo "Trivy filesystem scan completed"
           ls -lah scan-results/
 
-      - name: Upload Trivy results as artifact
+      - name: Upload Trivy filesystem results as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-scan-results
-          path: scan-results/trivy-results.json
+          name: trivy-fs-scan-results
+          path: scan-results/trivy-fs-results.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  docker-build-scan:
+    name: Docker Image Build & Trivy Image Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          echo "Building Docker image..."
+          docker build -t pygoat:${{ github.sha }} .
+          docker images
+
+      - name: Run Trivy image scanner
+        run: |
+          mkdir -p scan-results
+
+          echo "Running Trivy image scan for CVE analysis..."
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${{ github.workspace }}/scan-results:/output \
+            aquasec/trivy:latest image \
+            --format json \
+            --output /output/trivy-image-results.json \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            pygoat:${{ github.sha }} || true
+
+          echo "Trivy image scan completed"
+          ls -lah scan-results/
+
+      - name: Upload Trivy image results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-scan-results
+          path: scan-results/trivy-image-results.json
           retention-days: 30
           if-no-files-found: warn
 
   generate-summary:
     name: Generate Summary Report
     runs-on: ubuntu-latest
-    needs: [semgrep-scan, codeql-scan, trivy-scan]
+    needs: [semgrep-scan, codeql-scan, trivy-fs-scan, docker-build-scan]
     if: always()
 
     steps:
@@ -251,14 +293,14 @@ jobs:
             echo "❌ CodeQL results not found" >> analysis-summary.md
           fi
 
-          # Trivy results
+          # Trivy Filesystem results
           echo "" >> analysis-summary.md
-          echo "### 📦 Trivy (SCA)" >> analysis-summary.md
-          if [ -f artifacts/trivy-scan-results/trivy-results.json ]; then
+          echo "### 📦 Trivy Filesystem (SCA)" >> analysis-summary.md
+          if [ -f artifacts/trivy-fs-scan-results/trivy-fs-results.json ]; then
             python3 << 'PYEOF' >> analysis-summary.md
           import json
           try:
-              with open('artifacts/trivy-scan-results/trivy-results.json', 'r') as f:
+              with open('artifacts/trivy-fs-scan-results/trivy-fs-results.json', 'r') as f:
                   data = json.load(f)
 
               total_vulns = 0
@@ -279,10 +321,65 @@ jobs:
                       if severity in severity_counts:
                           print(f"  - {severity}: {severity_counts[severity]}")
           except Exception as e:
-              print(f"❌ Error parsing Trivy results: {e}")
+              print(f"❌ Error parsing Trivy filesystem results: {e}")
           PYEOF
           else
-            echo "❌ Trivy results not found" >> analysis-summary.md
+            echo "❌ Trivy filesystem results not found" >> analysis-summary.md
+          fi
+
+          # Trivy Image results (CVE)
+          echo "" >> analysis-summary.md
+          echo "### 🐳 Trivy Docker Image (CVE Analysis)" >> analysis-summary.md
+          if [ -f artifacts/trivy-image-scan-results/trivy-image-results.json ]; then
+            python3 << 'PYEOF' >> analysis-summary.md
+          import json
+          try:
+              with open('artifacts/trivy-image-scan-results/trivy-image-results.json', 'r') as f:
+                  data = json.load(f)
+
+              total_vulns = 0
+              severity_counts = {}
+              cve_ids = []
+
+              for result in data.get('Results', []):
+                  vulns = result.get('Vulnerabilities', [])
+                  if vulns:
+                      for vuln in vulns:
+                          total_vulns += 1
+                          severity = vuln.get('Severity', 'UNKNOWN')
+                          severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+                          cve_id = vuln.get('VulnerabilityID', '')
+                          if cve_id and cve_id.startswith('CVE-'):
+                              cve_ids.append(cve_id)
+
+              print(f"- **Total Vulnerabilities:** {total_vulns}")
+              print(f"- **Total CVEs:** {len(cve_ids)}")
+              if severity_counts:
+                  print("- **By Severity:**")
+                  for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+                      if severity in severity_counts:
+                          print(f"  - {severity}: {severity_counts[severity]}")
+
+              if cve_ids:
+                  critical_cves = []
+                  with open('artifacts/trivy-image-scan-results/trivy-image-results.json', 'r') as f:
+                      data = json.load(f)
+                  for result in data.get('Results', []):
+                      for vuln in result.get('Vulnerabilities', []):
+                          if vuln.get('Severity') == 'CRITICAL':
+                              critical_cves.append(vuln.get('VulnerabilityID', ''))
+
+                  if critical_cves:
+                      print(f"\n**Critical CVEs (Top 10):**")
+                      for cve in critical_cves[:10]:
+                          print(f"- {cve}")
+
+          except Exception as e:
+              print(f"❌ Error parsing Trivy image results: {e}")
+          PYEOF
+          else
+            echo "❌ Trivy image results not found" >> analysis-summary.md
           fi
 
           echo "" >> analysis-summary.md
@@ -293,7 +390,8 @@ jobs:
           echo "Detailed scan results are available as artifacts:" >> analysis-summary.md
           echo "- \`semgrep-scan-results\` - Semgrep JSON results" >> analysis-summary.md
           echo "- \`codeql-scan-results\` - CodeQL SARIF results" >> analysis-summary.md
-          echo "- \`trivy-scan-results\` - Trivy JSON results" >> analysis-summary.md
+          echo "- \`trivy-fs-scan-results\` - Trivy filesystem JSON results" >> analysis-summary.md
+          echo "- \`trivy-image-scan-results\` - Trivy Docker image JSON results (CVE)" >> analysis-summary.md
           echo "" >> analysis-summary.md
           echo "*Artifacts are retained for 30 days*" >> analysis-summary.md
 
