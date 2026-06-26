@@ -69,19 +69,20 @@ jobs:
           unzip -q codeql-linux64.zip
           echo "${{ github.workspace }}/codeql" >> $GITHUB_PATH
 
-          echo "Downloading CodeQL query packs..."
-          git clone --depth 1 https://github.com/github/codeql.git codeql-repo
-
           echo "CodeQL version:"
           ./codeql/codeql version
+
+      - name: Download CodeQL query packs
+        run: |
+          echo "Downloading Python query packs..."
+          ./codeql/codeql pack download codeql/python-queries
 
       - name: Create CodeQL database
         run: |
           echo "Creating CodeQL database for Python..."
           ./codeql/codeql database create codeql-db \
             --language=python \
-            --source-root=. \
-            --verbose
+            --source-root=.
 
           echo "Database created successfully"
           ls -lah codeql-db/
@@ -91,20 +92,15 @@ jobs:
           echo "Starting CodeQL analysis..."
           mkdir -p scan-results
 
-          echo "Running analysis with security queries..."
+          echo "Running analysis with Python security queries..."
           ./codeql/codeql database analyze codeql-db \
-            codeql-repo/python/ql/src/codeql-suites/python-security-extended.qls \
+            codeql/python-queries:codeql-suites/python-security-extended.qls \
             --format=sarif-latest \
             --output=scan-results/codeql-results.sarif \
             --sarif-category=python \
-            --verbose || {
-            echo "Security suite failed, trying with security-and-quality..."
-            ./codeql/codeql database analyze codeql-db \
-              codeql-repo/python/ql/src/codeql-suites/python-security-and-quality.qls \
-              --format=sarif-latest \
-              --output=scan-results/codeql-results.sarif \
-              --verbose || true
-          }
+            --verbose || true
+
+          echo "Analysis completed"
 
           # Check all possible locations
           echo "=== Checking for result files ==="
