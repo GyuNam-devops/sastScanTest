@@ -108,26 +108,8 @@ jobs:
             wc -l scan-results/codeql-results.sarif
           else
             echo "✗ CodeQL results file not found at expected location"
-            # Create minimal SARIF file to ensure artifact upload
-            cat > scan-results/codeql-results.sarif << 'EOF'
-{
-  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-  "version": "2.1.0",
-  "runs": [
-    {
-      "tool": {
-        "driver": {
-          "name": "CodeQL",
-          "version": "unknown",
-          "informationUri": "https://codeql.github.com"
-        }
-      },
-      "results": []
-    }
-  ]
-}
-EOF
-            echo "Created empty SARIF file as placeholder"
+            echo "Creating empty SARIF file as placeholder"
+            python3 -c 'import json; print(json.dumps({"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL"}},"results":[]}]}))' > scan-results/codeql-results.sarif
           fi
 
       - name: Upload CodeQL results as artifact
