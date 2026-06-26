@@ -121,19 +121,3 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  summary:
-    name: Scan Summary
-    runs-on: ubuntu-latest
-    needs: [semgrep-scan, codeql-scan]
-    if: always()
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-scan-results
-
-      - name: List all results
-        run: |
-          echo "Artifacts downloaded:"
-          find all-scan-results -type f -name "*.json" -ls
