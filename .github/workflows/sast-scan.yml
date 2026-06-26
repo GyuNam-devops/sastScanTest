@@ -77,17 +77,16 @@ jobs:
           mkdir -p scan-results
           codeql database analyze codeql-db \
             --format=sarif-latest \
-            --output=scan-results/codeql-results.json \
+            --output=scan-results/codeql-results.sarif \
             --download || true
 
           # Verify file was created
           ls -lah scan-results/
-          if [ -f scan-results/codeql-results.json ]; then
+          if [ -f scan-results/codeql-results.sarif ]; then
             echo "CodeQL results generated successfully"
+            cat scan-results/codeql-results.sarif | head -20
           else
             echo "Warning: CodeQL results file not found"
-            # Create empty results file to ensure artifact upload
-            echo '{"runs":[]}' > scan-results/codeql-results.json
           fi
 
       - name: Upload CodeQL results as artifact
@@ -95,7 +94,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: codeql-scan-results
-          path: scan-results/codeql-results.json
+          path: scan-results/codeql-results.sarif
           retention-days: 30
           if-no-files-found: warn
 
