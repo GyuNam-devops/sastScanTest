@@ -548,6 +548,7 @@ jobs:
           DOCKER_SCAN_RESULT: ${{ needs.docker-build-scan.result }}
         with:
           script: |
+            const fs = require('fs');
             const runId = context.runId;
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
             const prNumber = process.env.PR_NUMBER;
@@ -571,6 +572,117 @@ jobs:
               artifactUrls[artifact.name] = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}/artifacts/${artifact.id}`;
             });
 
+            // Parse scan results for overview
+            let semgrepOverview = '';
+            let codeqlOverview = '';
+            let trivyFsOverview = '';
+            let trivyImageOverview = '';
+
+            try {
+              // Semgrep results
+              if (fs.existsSync('artifacts/semgrep-scan-results/semgrep-results.json')) {
+                const semgrepData = JSON.parse(fs.readFileSync('artifacts/semgrep-scan-results/semgrep-results.json', 'utf8'));
+                const results = semgrepData.results || [];
+                const errors = semgrepData.errors || [];
+                const severityCounts = {};
+                results.forEach(r => {
+                  const severity = r.extra?.severity || 'UNKNOWN';
+                  severityCounts[severity] = (severityCounts[severity] || 0) + 1;
+                });
+
+                semgrepOverview = `**🔍 Semgrep (SAST)**\n- Total Findings: ${results.length}\n- Errors: ${errors.length}`;
+                if (Object.keys(severityCounts).length > 0) {
+                  semgrepOverview += '\n- By Severity:';
+                  ['ERROR', 'WARNING', 'INFO'].forEach(sev => {
+                    if (severityCounts[sev]) semgrepOverview += `\n  - ${sev}: ${severityCounts[sev]}`;
+                  });
+                }
+              }
+
+              // CodeQL results
+              if (fs.existsSync('artifacts/codeql-scan-results/codeql-results.sarif')) {
+                const codeqlData = JSON.parse(fs.readFileSync('artifacts/codeql-scan-results/codeql-results.sarif', 'utf8'));
+                let totalResults = 0;
+                const severityCounts = {};
+                (codeqlData.runs || []).forEach(run => {
+                  const results = run.results || [];
+                  totalResults += results.length;
+                  results.forEach(r => {
+                    const level = r.level || 'note';
+                    severityCounts[level] = (severityCounts[level] || 0) + 1;
+                  });
+                });
+
+                codeqlOverview = `**🔍 CodeQL (SAST)**\n- Total Findings: ${totalResults}`;
+                if (Object.keys(severityCounts).length > 0) {
+                  codeqlOverview += '\n- By Severity:';
+                  ['error', 'warning', 'note'].forEach(lvl => {
+                    if (severityCounts[lvl]) codeqlOverview += `\n  - ${lvl.toUpperCase()}: ${severityCounts[lvl]}`;
+                  });
+                }
+              }
+
+              // Trivy Filesystem results
+              if (fs.existsSync('artifacts/trivy-fs-scan-results/trivy-fs-results.json')) {
+                const trivyFsData = JSON.parse(fs.readFileSync('artifacts/trivy-fs-scan-results/trivy-fs-results.json', 'utf8'));
+                let totalVulns = 0;
+                const severityCounts = {};
+                (trivyFsData.Results || []).forEach(result => {
+                  (result.Vulnerabilities || []).forEach(vuln => {
+                    totalVulns++;
+                    const severity = vuln.Severity || 'UNKNOWN';
+                    severityCounts[severity] = (severityCounts[severity] || 0) + 1;
+                  });
+                });
+
+                trivyFsOverview = `**📦 Trivy Filesystem (SCA)**\n- Total Vulnerabilities: ${totalVulns}`;
+                if (Object.keys(severityCounts).length > 0) {
+                  trivyFsOverview += '\n- By Severity:';
+                  ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].forEach(sev => {
+                    if (severityCounts[sev]) trivyFsOverview += `\n  - ${sev}: ${severityCounts[sev]}`;
+                  });
+                }
+              }
+
+              // Trivy Image results
+              if (fs.existsSync('artifacts/trivy-image-scan-results/trivy-image-results.json')) {
+                const trivyImageData = JSON.parse(fs.readFileSync('artifacts/trivy-image-scan-results/trivy-image-results.json', 'utf8'));
+                let totalVulns = 0;
+                const severityCounts = {};
+                const criticalCves = [];
+
+                (trivyImageData.Results || []).forEach(result => {
+                  (result.Vulnerabilities || []).forEach(vuln => {
+                    totalVulns++;
+                    const severity = vuln.Severity || 'UNKNOWN';
+                    severityCounts[severity] = (severityCounts[severity] || 0) + 1;
+
+                    if (severity === 'CRITICAL' && vuln.VulnerabilityID) {
+                      criticalCves.push(vuln.VulnerabilityID);
+                    }
+                  });
+                });
+
+                const cveCount = criticalCves.filter(id => id.startsWith('CVE-')).length;
+                trivyImageOverview = `**🐳 Trivy Docker Image (CVE Analysis)**\n- Total Vulnerabilities: ${totalVulns}\n- Total CVEs: ${cveCount}`;
+                if (Object.keys(severityCounts).length > 0) {
+                  trivyImageOverview += '\n- By Severity:';
+                  ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].forEach(sev => {
+                    if (severityCounts[sev]) trivyImageOverview += `\n  - ${sev}: ${severityCounts[sev]}`;
+                  });
+                }
+
+                if (criticalCves.length > 0) {
+                  trivyImageOverview += '\n\n**Critical CVEs (Top 10):**';
+                  criticalCves.slice(0, 10).forEach(cve => {
+                    trivyImageOverview += `\n- ${cve}`;
+                  });
+                }
+              }
+            } catch (error) {
+              console.log('Error parsing scan results:', error);
+            }
+
             const comment = `## 🔒 SAST/SCA Scan Results
 
             ### 📊 Scan Summary
@@ -581,6 +693,16 @@ jobs:
             | 🔍 CodeQL (SAST) | ${codeqlStatus} | ${artifactUrls['codeql-scan-results'] ? '[📥 Download]('+artifactUrls['codeql-scan-results']+')' : 'N/A'} |
             | 📦 Trivy Filesystem (SCA) | ${trivyFsStatus} | ${artifactUrls['trivy-fs-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-fs-scan-results']+')' : 'N/A'} |
             | 🐳 Trivy Docker Image | ${dockerStatus} | ${artifactUrls['trivy-image-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-image-scan-results']+')' : 'N/A'} |
+
+            ### 📋 Scan Results Overview
+
+            ${semgrepOverview || '🔍 **Semgrep (SAST)** - Results not available'}
+
+            ${codeqlOverview || '🔍 **CodeQL (SAST)** - Results not available'}
+
+            ${trivyFsOverview || '📦 **Trivy Filesystem (SCA)** - Results not available'}
+
+            ${trivyImageOverview || '🐳 **Trivy Docker Image** - Results not available'}
 
             ### 📥 Direct Download Links
 
