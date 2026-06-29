@@ -536,11 +536,21 @@ jobs:
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || steps.get-pr-number.outputs.pr-number }}
+          SEMGREP_RESULT: ${{ needs.semgrep-scan.result }}
+          CODEQL_RESULT: ${{ needs.codeql-scan.result }}
+          TRIVY_FS_RESULT: ${{ needs.trivy-fs-scan.result }}
+          DOCKER_SCAN_RESULT: ${{ needs.docker-build-scan.result }}
         with:
           script: |
             const runId = context.runId;
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
             const prNumber = process.env.PR_NUMBER;
+
+            // Get job results
+            const semgrepStatus = process.env.SEMGREP_RESULT === 'success' ? '✅' : '❌';
+            const codeqlStatus = process.env.CODEQL_RESULT === 'success' ? '✅' : '❌';
+            const trivyFsStatus = process.env.TRIVY_FS_RESULT === 'success' ? '✅' : '❌';
+            const dockerStatus = process.env.DOCKER_SCAN_RESULT === 'success' ? '✅' : '❌';
 
             // Fetch artifacts to get direct download URLs
             const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
@@ -561,10 +571,10 @@ jobs:
 
             | Tool | Status | Download |
             |------|--------|----------|
-            | 🔍 Semgrep (SAST) | ${{ needs.semgrep-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['semgrep-scan-results'] ? '[📥 Download]('+artifactUrls['semgrep-scan-results']+')' : 'N/A'} |
-            | 🔍 CodeQL (SAST) | ${{ needs.codeql-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['codeql-scan-results'] ? '[📥 Download]('+artifactUrls['codeql-scan-results']+')' : 'N/A'} |
-            | 📦 Trivy Filesystem (SCA) | ${{ needs.trivy-fs-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['trivy-fs-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-fs-scan-results']+')' : 'N/A'} |
-            | 🐳 Trivy Docker Image | ${{ needs.docker-build-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['trivy-image-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-image-scan-results']+')' : 'N/A'} |
+            | 🔍 Semgrep (SAST) | ${semgrepStatus} | ${artifactUrls['semgrep-scan-results'] ? '[📥 Download]('+artifactUrls['semgrep-scan-results']+')' : 'N/A'} |
+            | 🔍 CodeQL (SAST) | ${codeqlStatus} | ${artifactUrls['codeql-scan-results'] ? '[📥 Download]('+artifactUrls['codeql-scan-results']+')' : 'N/A'} |
+            | 📦 Trivy Filesystem (SCA) | ${trivyFsStatus} | ${artifactUrls['trivy-fs-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-fs-scan-results']+')' : 'N/A'} |
+            | 🐳 Trivy Docker Image | ${dockerStatus} | ${artifactUrls['trivy-image-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-image-scan-results']+')' : 'N/A'} |
 
             ### 📥 Direct Download Links
 
