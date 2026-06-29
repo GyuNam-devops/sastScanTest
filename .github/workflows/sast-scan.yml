@@ -1,4 +1,4 @@
-name: Security Scan (SAST & SCA)
+name: Security Scan (SAST & SCA & CEV)
 
 on:
   push:
@@ -152,18 +152,6 @@ jobs:
             --severity CRITICAL,HIGH,MEDIUM,LOW \
             --scanners vuln,secret,misconfig || true
 
-          echo "Generating filesystem SBOM (CycloneDX format)..."
-          docker run --rm -v ${{ github.workspace }}:/scan \
-            aquasec/trivy:latest fs /scan \
-            --format cyclonedx \
-            --output /scan/scan-results/sbom-fs-cyclonedx.json || true
-
-          echo "Generating filesystem SBOM (SPDX format)..."
-          docker run --rm -v ${{ github.workspace }}:/scan \
-            aquasec/trivy:latest fs /scan \
-            --format spdx-json \
-            --output /scan/scan-results/sbom-fs-spdx.json || true
-
           echo "Trivy filesystem scan completed"
           ls -lah scan-results/
 
@@ -204,22 +192,6 @@ jobs:
             --format json \
             --output /output/trivy-image-results.json \
             --severity CRITICAL,HIGH,MEDIUM,LOW \
-            pygoat:${{ github.sha }} || true
-
-          echo "Generating Docker image SBOM (CycloneDX format)..."
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            -v ${{ github.workspace }}/scan-results:/output \
-            aquasec/trivy:latest image \
-            --format cyclonedx \
-            --output /output/sbom-image-cyclonedx.json \
-            pygoat:${{ github.sha }} || true
-
-          echo "Generating Docker image SBOM (SPDX format)..."
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            -v ${{ github.workspace }}/scan-results:/output \
-            aquasec/trivy:latest image \
-            --format spdx-json \
-            --output /output/sbom-image-spdx.json \
             pygoat:${{ github.sha }} || true
 
           echo "Trivy image scan completed"
@@ -267,7 +239,7 @@ jobs:
               const { data: pr } = await github.rest.pulls.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: '🔒 Security Scan Results - dev → main',
+                title: '🔒 Security Scan Results',
                 head: 'dev',
                 base: 'main',
                 body: `## 🔒 Automated Security Scan PR
@@ -481,27 +453,13 @@ jobs:
           echo "" >> analysis-summary.md
           echo "---" >> analysis-summary.md
           echo "" >> analysis-summary.md
-          echo "## 📦 SBOM (Software Bill of Materials)" >> analysis-summary.md
-          echo "" >> analysis-summary.md
-          echo "SBOM files generated in multiple formats:" >> analysis-summary.md
-          echo "" >> analysis-summary.md
-          echo "**Filesystem SBOM:**" >> analysis-summary.md
-          echo "- CycloneDX: \`sbom-fs-cyclonedx.json\`" >> analysis-summary.md
-          echo "- SPDX: \`sbom-fs-spdx.json\`" >> analysis-summary.md
-          echo "" >> analysis-summary.md
-          echo "**Docker Image SBOM:**" >> analysis-summary.md
-          echo "- CycloneDX: \`sbom-image-cyclonedx.json\`" >> analysis-summary.md
-          echo "- SPDX: \`sbom-image-spdx.json\`" >> analysis-summary.md
-          echo "" >> analysis-summary.md
-          echo "---" >> analysis-summary.md
-          echo "" >> analysis-summary.md
           echo "## 📥 Download Full Results" >> analysis-summary.md
           echo "" >> analysis-summary.md
           echo "Detailed scan results are available as artifacts:" >> analysis-summary.md
           echo "- \`semgrep-scan-results\` - Semgrep JSON results" >> analysis-summary.md
           echo "- \`codeql-scan-results\` - CodeQL SARIF results" >> analysis-summary.md
-          echo "- \`trivy-fs-scan-results\` - Trivy filesystem scan + SBOM (CycloneDX, SPDX)" >> analysis-summary.md
-          echo "- \`trivy-image-scan-results\` - Trivy Docker image scan + SBOM (CycloneDX, SPDX)" >> analysis-summary.md
+          echo "- \`trivy-fs-scan-results\` - Trivy filesystem vulnerability scan" >> analysis-summary.md
+          echo "- \`trivy-image-scan-results\` - Trivy Docker image CVE scan" >> analysis-summary.md
           echo "" >> analysis-summary.md
           echo "*Artifacts are retained for 30 days*" >> analysis-summary.md
 
@@ -709,13 +667,9 @@ jobs:
             **Scan Results:**
             ${artifactUrls['semgrep-scan-results'] ? `- [📄 Semgrep JSON Results](${artifactUrls['semgrep-scan-results']}) - SAST findings in JSON format` : '- ⚠️ Semgrep results not available'}
             ${artifactUrls['codeql-scan-results'] ? `- [📄 CodeQL SARIF Results](${artifactUrls['codeql-scan-results']}) - SAST findings in SARIF format` : '- ⚠️ CodeQL results not available'}
-            ${artifactUrls['trivy-fs-scan-results'] ? `- [📄 Trivy Filesystem Results](${artifactUrls['trivy-fs-scan-results']}) - SCA scan + Filesystem SBOM` : '- ⚠️ Trivy filesystem results not available'}
-            ${artifactUrls['trivy-image-scan-results'] ? `- [📄 Trivy Docker Image Results](${artifactUrls['trivy-image-scan-results']}) - Docker CVE scan + Image SBOM` : '- ⚠️ Trivy image results not available'}
+            ${artifactUrls['trivy-fs-scan-results'] ? `- [📄 Trivy Filesystem Results](${artifactUrls['trivy-fs-scan-results']}) - SCA vulnerability scan results` : '- ⚠️ Trivy filesystem results not available'}
+            ${artifactUrls['trivy-image-scan-results'] ? `- [📄 Trivy Docker Image Results](${artifactUrls['trivy-image-scan-results']}) - Docker CVE scan results` : '- ⚠️ Trivy image results not available'}
             ${artifactUrls['analysis-summary'] ? `- [📄 Analysis Summary Report](${artifactUrls['analysis-summary']}) - Comprehensive summary of all findings` : '- ⚠️ Analysis summary not available'}
-
-            **SBOM Files (Software Bill of Materials):**
-            ${artifactUrls['trivy-fs-scan-results'] ? `- [📦 Filesystem SBOM](${artifactUrls['trivy-fs-scan-results']}) - CycloneDX & SPDX formats` : ''}
-            ${artifactUrls['trivy-image-scan-results'] ? `- [📦 Docker Image SBOM](${artifactUrls['trivy-image-scan-results']}) - CycloneDX & SPDX formats` : ''}
 
             ### 🔗 Quick Links
             - [📊 View Full Workflow Run](${runUrl})
@@ -726,7 +680,6 @@ jobs:
             - ✅ All artifacts are retained for **30 days**
             - 🔍 Click download links above to get detailed scan results
             - 📊 Check the [Security tab](https://github.com/${context.repo.owner}/${context.repo.repo}/security) for CodeQL findings
-            - 📦 SBOM files are included in Trivy scan artifacts
 
             ### 📋 Artifact Contents
 
@@ -741,13 +694,9 @@ jobs:
 
             **trivy-fs-scan-results**
             - \`trivy-fs-results.json\` - Vulnerability scan results
-            - \`sbom-fs-cyclonedx.json\` - SBOM in CycloneDX format
-            - \`sbom-fs-spdx.json\` - SBOM in SPDX format
 
             **trivy-image-scan-results**
             - \`trivy-image-results.json\` - Docker image CVE scan results
-            - \`sbom-image-cyclonedx.json\` - Image SBOM in CycloneDX format
-            - \`sbom-image-spdx.json\` - Image SBOM in SPDX format
 
             **analysis-summary**
             - \`analysis-summary.md\` - Comprehensive summary with all findings aggregated
