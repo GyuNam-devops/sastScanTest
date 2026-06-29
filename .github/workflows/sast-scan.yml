@@ -2,9 +2,9 @@ name: Security Scan (SAST & SCA)
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ dev ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ dev ]
   workflow_dispatch:
 
 jobs:
