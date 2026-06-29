@@ -293,7 +293,7 @@ jobs:
   generate-summary:
     name: Generate Summary Report
     runs-on: ubuntu-latest
-    needs: [semgrep-scan, codeql-scan, trivy-fs-scan, docker-build-scan, create-pull-request]
+    needs: [semgrep-scan, codeql-scan, trivy-fs-scan, docker-build-scan]
     if: always() && (needs.semgrep-scan.result != 'cancelled' || needs.codeql-scan.result != 'cancelled' || needs.trivy-fs-scan.result != 'cancelled' || needs.docker-build-scan.result != 'cancelled')
 
     steps:
@@ -512,11 +512,30 @@ jobs:
         run: |
           cat analysis-summary.md >> $GITHUB_STEP_SUMMARY
 
+      - name: Get PR number from auto-created PR
+        id: get-pr-number
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:dev`,
+              base: 'main',
+              state: 'open'
+            });
+            if (pulls.length > 0) {
+              core.setOutput('pr-number', pulls[0].number);
+              return pulls[0].number;
+            }
+            return '';
+
       - name: Comment PR with scan results
-        if: always() && (github.event_name == 'pull_request' || needs.create-pull-request.outputs.pr-number)
+        if: always() && (github.event_name == 'pull_request' || steps.get-pr-number.outputs.pr-number)
         uses: actions/github-script@v7
         env:
-          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || needs.create-pull-request.outputs.pr-number }}
+          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || steps.get-pr-number.outputs.pr-number }}
         with:
           script: |
             const runId = context.runId;
