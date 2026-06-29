@@ -709,8 +709,8 @@ jobs:
             **Scan Results:**
             ${artifactUrls['semgrep-scan-results'] ? `- [📄 Semgrep JSON Results](${artifactUrls['semgrep-scan-results']}) - SAST findings in JSON format` : '- ⚠️ Semgrep results not available'}
             ${artifactUrls['codeql-scan-results'] ? `- [📄 CodeQL SARIF Results](${artifactUrls['codeql-scan-results']}) - SAST findings in SARIF format` : '- ⚠️ CodeQL results not available'}
-            ${artifactUrls['trivy-fs-scan-results'] ? `- [📄 Trivy Filesystem Results](${artifactUrls['trivy-fs-scan-results']}) - SCA scan + Filesystem SBOM` : '- ⚠️ Trivy filesystem results not available'}
-            ${artifactUrls['trivy-image-scan-results'] ? `- [📄 Trivy Docker Image Results](${artifactUrls['trivy-image-scan-results']}) - Docker CVE scan + Image SBOM` : '- ⚠️ Trivy image results not available'}
+            ${artifactUrls['trivy-fs-scan-results'] ? `- [📄 Trivy Filesystem Results](${artifactUrls['trivy-fs-scan-results']}) - SCA vulnerability scan results` : '- ⚠️ Trivy filesystem results not available'}
+            ${artifactUrls['trivy-image-scan-results'] ? `- [📄 Trivy Docker Image Results](${artifactUrls['trivy-image-scan-results']}) - Docker CVE scan results` : '- ⚠️ Trivy image results not available'}
             ${artifactUrls['analysis-summary'] ? `- [📄 Analysis Summary Report](${artifactUrls['analysis-summary']}) - Comprehensive summary of all findings` : '- ⚠️ Analysis summary not available'}
 
             **SBOM Files (Software Bill of Materials):**
