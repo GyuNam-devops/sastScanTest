@@ -2,9 +2,9 @@ name: Security Scan (SAST & SCA)
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -458,44 +458,82 @@ jobs:
             const runId = context.runId;
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
 
+            // Fetch artifacts to get direct download URLs
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+            });
+
+            // Create artifact name to URL mapping
+            const artifactUrls = {};
+            artifacts.data.artifacts.forEach(artifact => {
+              artifactUrls[artifact.name] = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}/artifacts/${artifact.id}`;
+            });
+
             const comment = `## 🔒 SAST/SCA Scan Results
 
             ### 📊 Scan Summary
 
-            | Tool | Status | Results |
-            |------|--------|---------|
-            | 🔍 Semgrep (SAST) | ${{ needs.semgrep-scan.result == 'success' ? '✅' : '❌' }} | [Download](${runUrl}#artifacts) |
-            | 🔍 CodeQL (SAST) | ${{ needs.codeql-scan.result == 'success' ? '✅' : '❌' }} | [Download](${runUrl}#artifacts) |
-            | 📦 Trivy Filesystem (SCA) | ${{ needs.trivy-fs-scan.result == 'success' ? '✅' : '❌' }} | [Download](${runUrl}#artifacts) |
-            | 🐳 Trivy Docker Image | ${{ needs.docker-build-scan.result == 'success' ? '✅' : '❌' }} | [Download](${runUrl}#artifacts) |
+            | Tool | Status | Download |
+            |------|--------|----------|
+            | 🔍 Semgrep (SAST) | ${{ needs.semgrep-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['semgrep-scan-results'] ? '[📥 Download]('+artifactUrls['semgrep-scan-results']+')' : 'N/A'} |
+            | 🔍 CodeQL (SAST) | ${{ needs.codeql-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['codeql-scan-results'] ? '[📥 Download]('+artifactUrls['codeql-scan-results']+')' : 'N/A'} |
+            | 📦 Trivy Filesystem (SCA) | ${{ needs.trivy-fs-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['trivy-fs-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-fs-scan-results']+')' : 'N/A'} |
+            | 🐳 Trivy Docker Image | ${{ needs.docker-build-scan.result == 'success' ? '✅' : '❌' }} | ${artifactUrls['trivy-image-scan-results'] ? '[📥 Download]('+artifactUrls['trivy-image-scan-results']+')' : 'N/A'} |
 
-            ### 📥 Download Links
+            ### 📥 Direct Download Links
 
             **Scan Results:**
-            - [📄 Semgrep JSON Results](${runUrl}#artifacts) - \`semgrep-scan-results\`
-            - [📄 CodeQL SARIF Results](${runUrl}#artifacts) - \`codeql-scan-results\`
-            - [📄 Trivy Filesystem Results](${runUrl}#artifacts) - \`trivy-fs-scan-results\`
-            - [📄 Trivy Docker Image Results](${runUrl}#artifacts) - \`trivy-image-scan-results\`
-            - [📄 Analysis Summary](${runUrl}#artifacts) - \`analysis-summary\`
+            ${artifactUrls['semgrep-scan-results'] ? `- [📄 Semgrep JSON Results](${artifactUrls['semgrep-scan-results']}) - SAST findings in JSON format` : '- ⚠️ Semgrep results not available'}
+            ${artifactUrls['codeql-scan-results'] ? `- [📄 CodeQL SARIF Results](${artifactUrls['codeql-scan-results']}) - SAST findings in SARIF format` : '- ⚠️ CodeQL results not available'}
+            ${artifactUrls['trivy-fs-scan-results'] ? `- [📄 Trivy Filesystem Results](${artifactUrls['trivy-fs-scan-results']}) - SCA scan + Filesystem SBOM` : '- ⚠️ Trivy filesystem results not available'}
+            ${artifactUrls['trivy-image-scan-results'] ? `- [📄 Trivy Docker Image Results](${artifactUrls['trivy-image-scan-results']}) - Docker CVE scan + Image SBOM` : '- ⚠️ Trivy image results not available'}
+            ${artifactUrls['analysis-summary'] ? `- [📄 Analysis Summary Report](${artifactUrls['analysis-summary']}) - Comprehensive summary of all findings` : '- ⚠️ Analysis summary not available'}
 
-            **SBOM Files:**
-            - CycloneDX (Filesystem) - In \`trivy-fs-scan-results\`
-            - SPDX (Filesystem) - In \`trivy-fs-scan-results\`
-            - CycloneDX (Docker Image) - In \`trivy-image-scan-results\`
-            - SPDX (Docker Image) - In \`trivy-image-scan-results\`
+            **SBOM Files (Software Bill of Materials):**
+            ${artifactUrls['trivy-fs-scan-results'] ? `- [📦 Filesystem SBOM](${artifactUrls['trivy-fs-scan-results']}) - CycloneDX & SPDX formats` : ''}
+            ${artifactUrls['trivy-image-scan-results'] ? `- [📦 Docker Image SBOM](${artifactUrls['trivy-image-scan-results']}) - CycloneDX & SPDX formats` : ''}
 
             ### 🔗 Quick Links
-            - [📊 Full Workflow Run](${runUrl})
-            - [🔐 Security Alerts](https://github.com/${context.repo.owner}/${context.repo.repo}/security/code-scanning)
+            - [📊 View Full Workflow Run](${runUrl})
+            - [🔐 Security Code Scanning Alerts](https://github.com/${context.repo.owner}/${context.repo.repo}/security/code-scanning)
             - [📦 All Artifacts](${runUrl}#artifacts)
 
             ### 📝 Notes
-            - Artifacts are retained for 30 days
-            - Click "Download" links to access detailed scan results
-            - Check Security tab for CodeQL findings
+            - ✅ All artifacts are retained for **30 days**
+            - 🔍 Click download links above to get detailed scan results
+            - 📊 Check the [Security tab](https://github.com/${context.repo.owner}/${context.repo.repo}/security) for CodeQL findings
+            - 📦 SBOM files are included in Trivy scan artifacts
+
+            ### 📋 Artifact Contents
+
+            <details>
+            <summary>🗂️ What's in each artifact?</summary>
+
+            **semgrep-scan-results**
+            - \`semgrep-results.json\` - SAST findings from Semgrep
+
+            **codeql-scan-results**
+            - \`codeql-results.sarif\` - SAST findings from CodeQL
+
+            **trivy-fs-scan-results**
+            - \`trivy-fs-results.json\` - Vulnerability scan results
+            - \`sbom-fs-cyclonedx.json\` - SBOM in CycloneDX format
+            - \`sbom-fs-spdx.json\` - SBOM in SPDX format
+
+            **trivy-image-scan-results**
+            - \`trivy-image-results.json\` - Docker image CVE scan results
+            - \`sbom-image-cyclonedx.json\` - Image SBOM in CycloneDX format
+            - \`sbom-image-spdx.json\` - Image SBOM in SPDX format
+
+            **analysis-summary**
+            - \`analysis-summary.md\` - Comprehensive summary with all findings aggregated
+
+            </details>
 
             ---
-            *Generated by SAST/SCA Security Scan Workflow*
+            *🤖 Generated by SAST/SCA Security Scan Workflow - Run ID: ${runId}*
             `;
 
             github.rest.issues.createComment({
