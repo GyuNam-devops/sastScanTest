@@ -1,4 +1,4 @@
-name: Security Scan (SAST & SCA)
+name: Security Scan (SAST & SCA & CEV)
 
 on:
   push:
@@ -239,7 +239,7 @@ jobs:
               const { data: pr } = await github.rest.pulls.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: '🔒 Security Scan Results - dev → main',
+                title: '🔒 Security Scan Results',
                 head: 'dev',
                 base: 'main',
                 body: `## 🔒 Automated Security Scan PR
