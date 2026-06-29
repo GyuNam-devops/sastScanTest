@@ -6,23 +6,6 @@ on:
   pull_request:
     branches: [ dev ]
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      language:
-        description: 'Programming language for CodeQL scan'
-        required: false
-        type: string
-        default: 'python'
-      branch:
-        description: 'Branch to scan'
-        required: false
-        type: string
-        default: 'dev'
-      create-pr:
-        description: 'Create PR automatically'
-        required: false
-        type: boolean
-        default: true
 
 permissions:
   contents: read
